@@ -1,87 +1,14 @@
-const DEFAULT_MESSAGE = 'CONSUME';
-
-const MESSAGE_RULES = [
-  {
-    message: 'WATCH TV',
-    keywords: [
-      'stream', 'streaming', 'netflix', 'hulu', 'disney', 'disney+', 'hbo', 'max',
-      'prime video', 'youtube', 'twitch', 'spotify', 'podcast', 'watch now',
-      'binge', 'tv show', 'television', 'movie', 'series', 'episode', 'channel',
-      'on demand', 'live tv', 'entertainment',
-    ],
-    domains: ['netflix.com', 'hulu.com', 'disneyplus', 'youtube.com', 'twitch.tv', 'spotify.com'],
-  },
-  {
-    message: 'NO INDEPENDENT THOUGHT',
-    keywords: [
-      'politic', 'political', 'election', 'elect', 'vote', 'voting', 'ballot',
-      'campaign', 'congress', 'senate', 'president', 'presidential', 'governor',
-      'democrat', 'republican', 'parliament', 'minister', 'policy', 'legislation',
-      'candidate', 'referendum', 'partisan', 'capitol', 'white house',
-    ],
-  },
-  {
-    message: 'DO NOT QUESTION AUTHORITY',
-    keywords: [
-      'authority', 'official', 'mandatory', 'law enforcement', 'military',
-      'police', 'comply', 'compliance', 'regulation', 'government agency',
-      ' homeland', 'national security', 'executive order', 'state department',
-    ],
-  },
-  {
-    message: 'OBEY',
-    keywords: [
-      'obey', 'comply', 'follow the rules', 'terms of service', 'community guidelines',
-      'official statement', 'trusted source', 'certified', 'approved by',
-    ],
-  },
-  {
-    message: 'SUBMIT',
-    keywords: [
-      'subscribe', 'sign up', 'signup', 'join now', 'register', 'membership',
-      'newsletter', 'create account', 'get started', 'free trial', 'enroll',
-    ],
-  },
-  {
-    message: 'MARRY AND REPRODUCE',
-    keywords: [
-      'dating', 'date night', 'marriage', 'marry', 'wedding', 'relationship',
-      'soulmate', 'family planning', 'baby', 'pregnancy', 'tinder', 'match.com',
-      'find love', ' singles',
-    ],
-  },
-  {
-    message: 'BUY',
-    keywords: [
-      'buy now', 'buy today', 'add to cart', 'checkout', 'purchase now',
-      'order now', 'limited offer', 'free shipping', 'shop now', 'get yours',
-    ],
-  },
-  {
-    message: 'CONSUME',
-    keywords: [
-      'shop', 'shopping', 'store', 'marketplace', 'retail', 'ecommerce',
-      'sale', 'discount', 'deal', 'coupon', 'brand', 'product', 'amazon',
-      'ebay', 'walmart', 'target', 'shopify', 'consume', 'merchandise',
-    ],
-    domains: ['amazon.com', 'ebay.com', 'walmart.com', 'target.com', 'shopify.com'],
-  },
-  {
-    message: 'STAY ASLEEP',
-    keywords: [
-      'relax', 'unwind', 'comfort', 'self-care', 'wellness', 'meditation',
-      'sleep', 'dream', 'ignore the noise', 'don\'t worry', 'stress free',
-      'peace of mind', 'calm',
-    ],
-  },
-  {
-    message: 'CONFORM',
-    keywords: [
-      'trending', 'viral', 'popular', 'everyone is', 'join millions',
-      'best seller', 'top rated', 'influencer', 'must have', 'don\'t miss out',
-      'as seen on', 'celebrity',
-    ],
-  },
+const MESSAGES = [
+  'OBEY',
+  'CONSUME',
+  'STAY ASLEEP',
+  'NO INDEPENDENT THOUGHT',
+  'DO NOT QUESTION AUTHORITY',
+  'SUBMIT',
+  'BUY',
+  'MARRY AND REPRODUCE',
+  'WATCH TV',
+  'CONFORM',
 ];
 
 const AD_SELECTORS = [
@@ -141,97 +68,9 @@ const blockedAds = new Map();
 let observer = null;
 let scanTimer = null;
 
-function extractAdContext(element) {
-  const parts = [];
-
-  const add = (value) => {
-    if (typeof value === 'string' && value.trim()) {
-      parts.push(value.trim());
-    }
-  };
-
-  add(element.getAttribute('title'));
-  add(element.getAttribute('aria-label'));
-  add(element.getAttribute('alt'));
-  add(element.id);
-  if (typeof element.className === 'string') add(element.className);
-
-  if (element.tagName === 'IFRAME') {
-    add(element.getAttribute('src'));
-    add(element.getAttribute('name'));
-  }
-
-  for (const attr of element.attributes) {
-    if (/^(data-|aria-)/i.test(attr.name)) add(attr.value);
-  }
-
-  const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-  add(text.length <= 400 ? text : text.slice(0, 400));
-
-  element.querySelectorAll('img, a, [aria-label], [title]').forEach((node) => {
-    add(node.getAttribute('alt'));
-    add(node.getAttribute('title'));
-    add(node.getAttribute('aria-label'));
-    if (node.tagName === 'A') add(node.getAttribute('href'));
-  });
-
-  let parent = element.parentElement;
-  for (let depth = 0; depth < 2 && parent; depth++) {
-    add(parent.getAttribute('aria-label'));
-    add(parent.getAttribute('title'));
-    for (const attr of parent.attributes) {
-      if (/^data-(ad|campaign|advertiser|cta|title)/i.test(attr.name)) {
-        add(attr.value);
-      }
-    }
-    const parentText = (parent.textContent || '').replace(/\s+/g, ' ').trim();
-    if (parentText.length <= 180) add(parentText);
-    parent = parent.parentElement;
-  }
-
-  return parts.join(' ').toLowerCase();
-}
-
-function scoreRule(context, rule) {
-  let score = 0;
-
-  for (const keyword of rule.keywords) {
-    if (context.includes(keyword)) {
-      score += keyword.length + 2;
-    }
-  }
-
-  if (rule.domains) {
-    for (const domain of rule.domains) {
-      if (context.includes(domain)) score += 12;
-    }
-  }
-
-  if (rule.patterns) {
-    for (const pattern of rule.patterns) {
-      if (pattern.test(context)) score += 10;
-    }
-  }
-
-  return score;
-}
-
 function pickMessage(element) {
-  const context = extractAdContext(element);
-  if (!context) return DEFAULT_MESSAGE;
-
-  let bestMessage = DEFAULT_MESSAGE;
-  let bestScore = 0;
-
-  for (const rule of MESSAGE_RULES) {
-    const score = scoreRule(context, rule);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMessage = rule.message;
-    }
-  }
-
-  return bestMessage;
+  const seed = element.tagName.length + element.className.length + element.id.length;
+  return MESSAGES[seed % MESSAGES.length];
 }
 
 function getElementSize(element) {
