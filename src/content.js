@@ -1,14 +1,87 @@
-const MESSAGES = [
-  'OBEY',
-  'CONSUME',
-  'STAY ASLEEP',
-  'NO INDEPENDENT THOUGHT',
-  'DO NOT QUESTION AUTHORITY',
-  'SUBMIT',
-  'BUY',
-  'MARRY AND REPRODUCE',
-  'WATCH TV',
-  'CONFORM',
+const DEFAULT_MESSAGE = 'CONSUME';
+
+const MESSAGE_RULES = [
+  {
+    message: 'WATCH TV',
+    keywords: [
+      'stream', 'streaming', 'netflix', 'hulu', 'disney', 'disney+', 'hbo', 'max',
+      'prime video', 'youtube', 'twitch', 'spotify', 'podcast', 'watch now',
+      'binge', 'tv show', 'television', 'movie', 'series', 'episode', 'channel',
+      'on demand', 'live tv', 'entertainment',
+    ],
+    domains: ['netflix.com', 'hulu.com', 'disneyplus', 'youtube.com', 'twitch.tv', 'spotify.com'],
+  },
+  {
+    message: 'NO INDEPENDENT THOUGHT',
+    keywords: [
+      'politic', 'political', 'election', 'elect', 'vote', 'voting', 'ballot',
+      'campaign', 'congress', 'senate', 'president', 'presidential', 'governor',
+      'democrat', 'republican', 'parliament', 'minister', 'policy', 'legislation',
+      'candidate', 'referendum', 'partisan', 'capitol', 'white house',
+    ],
+  },
+  {
+    message: 'DO NOT QUESTION AUTHORITY',
+    keywords: [
+      'authority', 'official', 'mandatory', 'law enforcement', 'military',
+      'police', 'comply', 'compliance', 'regulation', 'government agency',
+      ' homeland', 'national security', 'executive order', 'state department',
+    ],
+  },
+  {
+    message: 'OBEY',
+    keywords: [
+      'obey', 'comply', 'follow the rules', 'terms of service', 'community guidelines',
+      'official statement', 'trusted source', 'certified', 'approved by',
+    ],
+  },
+  {
+    message: 'SUBMIT',
+    keywords: [
+      'subscribe', 'sign up', 'signup', 'join now', 'register', 'membership',
+      'newsletter', 'create account', 'get started', 'free trial', 'enroll',
+    ],
+  },
+  {
+    message: 'MARRY AND REPRODUCE',
+    keywords: [
+      'dating', 'date night', 'marriage', 'marry', 'wedding', 'relationship',
+      'soulmate', 'family planning', 'baby', 'pregnancy', 'tinder', 'match.com',
+      'find love', ' singles',
+    ],
+  },
+  {
+    message: 'BUY',
+    keywords: [
+      'buy now', 'buy today', 'add to cart', 'checkout', 'purchase now',
+      'order now', 'limited offer', 'free shipping', 'shop now', 'get yours',
+    ],
+  },
+  {
+    message: 'CONSUME',
+    keywords: [
+      'shop', 'shopping', 'store', 'marketplace', 'retail', 'ecommerce',
+      'sale', 'discount', 'deal', 'coupon', 'brand', 'product', 'amazon',
+      'ebay', 'walmart', 'target', 'shopify', 'consume', 'merchandise',
+    ],
+    domains: ['amazon.com', 'ebay.com', 'walmart.com', 'target.com', 'shopify.com'],
+  },
+  {
+    message: 'STAY ASLEEP',
+    keywords: [
+      'relax', 'unwind', 'comfort', 'self-care', 'wellness', 'meditation',
+      'sleep', 'dream', 'ignore the noise', 'don\'t worry', 'stress free',
+      'peace of mind', 'calm',
+    ],
+  },
+  {
+    message: 'CONFORM',
+    keywords: [
+      'trending', 'viral', 'popular', 'everyone is', 'join millions',
+      'best seller', 'top rated', 'influencer', 'must have', 'don\'t miss out',
+      'as seen on', 'celebrity',
+    ],
+  },
 ];
 
 const AD_SELECTORS = [
@@ -68,9 +141,105 @@ const blockedAds = new Map();
 let observer = null;
 let scanTimer = null;
 
+function extractAdContext(element) {
+  const parts = [];
+
+  const add = (value) => {
+    if (typeof value === 'string' && value.trim()) {
+      parts.push(value.trim());
+    }
+  };
+
+  add(element.getAttribute('title'));
+  add(element.getAttribute('aria-label'));
+  add(element.getAttribute('alt'));
+  add(element.id);
+  if (typeof element.className === 'string') add(element.className);
+
+  if (element.tagName === 'IFRAME') {
+    add(element.getAttribute('src'));
+    add(element.getAttribute('name'));
+  }
+
+  for (const attr of element.attributes) {
+    if (/^(data-|aria-)/i.test(attr.name)) add(attr.value);
+  }
+
+  const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+  add(text.length <= 400 ? text : text.slice(0, 400));
+
+  element.querySelectorAll('img, a, [aria-label], [title]').forEach((node) => {
+    add(node.getAttribute('alt'));
+    add(node.getAttribute('title'));
+    add(node.getAttribute('aria-label'));
+    if (node.tagName === 'A') add(node.getAttribute('href'));
+  });
+
+  let parent = element.parentElement;
+  for (let depth = 0; depth < 2 && parent; depth++) {
+    add(parent.getAttribute('aria-label'));
+    add(parent.getAttribute('title'));
+    for (const attr of parent.attributes) {
+      if (/^data-(ad|campaign|advertiser|cta|title)/i.test(attr.name)) {
+        add(attr.value);
+      }
+    }
+    const parentText = (parent.textContent || '').replace(/\s+/g, ' ').trim();
+    if (parentText.length <= 180) add(parentText);
+    parent = parent.parentElement;
+  }
+
+  return parts.join(' ').toLowerCase();
+}
+
+function scoreRule(context, rule) {
+  let score = 0;
+
+  for (const keyword of rule.keywords) {
+    if (context.includes(keyword)) {
+      score += keyword.length + 2;
+    }
+  }
+
+  if (rule.domains) {
+    for (const domain of rule.domains) {
+      if (context.includes(domain)) score += 12;
+    }
+  }
+
+  if (rule.patterns) {
+    for (const pattern of rule.patterns) {
+      if (pattern.test(context)) score += 10;
+    }
+  }
+
+  return score;
+}
+
 function pickMessage(element) {
-  const seed = element.tagName.length + element.className.length + element.id.length;
-  return MESSAGES[seed % MESSAGES.length];
+  const context = extractAdContext(element);
+  if (!context) return DEFAULT_MESSAGE;
+
+  let bestMessage = DEFAULT_MESSAGE;
+  let bestScore = 0;
+
+  for (const rule of MESSAGE_RULES) {
+    const score = scoreRule(context, rule);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMessage = rule.message;
+    }
+  }
+
+  return bestMessage;
+}
+
+function getElementSize(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    width: Math.round(rect.width) || element.offsetWidth,
+    height: Math.round(rect.height) || element.offsetHeight,
+  };
 }
 
 function isStandardAdSize(width, height) {
@@ -94,6 +263,8 @@ function isLikelyAd(element) {
   if (element.closest('.they-live-wrapper')) return false;
   if (element.closest('.they-live-replacement')) return false;
   if (element.classList.contains('they-live-replacement')) return false;
+  if (element.dataset.theyLiveBlocked === 'true') return false;
+  if (element.querySelector('[data-they-live-blocked]')) return false;
 
   for (const blocked of blockedAds.keys()) {
     if (blocked !== element && blocked.contains(element)) return false;
@@ -102,9 +273,7 @@ function isLikelyAd(element) {
   const tag = element.tagName;
   if (tag === 'BODY' || tag === 'HTML' || tag === 'MAIN' || tag === 'ARTICLE') return false;
 
-  const rect = element.getBoundingClientRect();
-  const width = Math.round(rect.width);
-  const height = Math.round(rect.height);
+  const { width, height } = getElementSize(element);
 
   if (width < MIN_AD_WIDTH || height < MIN_AD_HEIGHT) return false;
   if (width > window.innerWidth * 0.95 && height > window.innerHeight * 0.8) return false;
@@ -156,6 +325,8 @@ function getBlockTarget(element) {
   let parent = element.parentElement;
   for (let i = 0; i < 3 && parent; i++) {
     if (parent.closest('.they-live-wrapper')) break;
+    if (blockedAds.has(parent)) return parent;
+    if (parent.querySelector('[data-they-live-blocked]')) return element;
     if (hasAdPattern(parent)) return parent;
     try {
       if (AD_SELECTORS.some((selector) => parent.matches(selector))) return parent;
@@ -168,42 +339,50 @@ function getBlockTarget(element) {
   return element;
 }
 
-function restoreAd(element) {
-  const record = blockedAds.get(element);
-  if (!record) return;
-
-  try {
-    element.classList.remove('they-live-hidden-ad');
-    delete element.dataset.theyLiveBlocked;
-
-    if (record.mode === 'in-place') {
-      record.overlay.remove();
-      if (record.parent?.dataset.theyLivePositionPatched) {
-        record.parent.style.position = '';
-        delete record.parent.dataset.theyLivePositionPatched;
-      }
-    } else {
-      const parent = record.wrapper.parentElement;
-      if (parent) {
-        parent.insertBefore(element, record.wrapper);
-      }
-      record.wrapper.remove();
-    }
-  } catch {
-    // best-effort restore
+function unwrapWrapper(wrapper) {
+  const parent = wrapper.parentElement;
+  if (!parent) {
+    wrapper.remove();
+    return;
   }
 
-  blockedAds.delete(element);
+  const children = [...wrapper.childNodes];
+  for (const child of children) {
+    if (child instanceof HTMLElement && child.classList.contains('they-live-replacement')) {
+      child.remove();
+      continue;
+    }
+    parent.insertBefore(child, wrapper);
+    if (child instanceof HTMLElement) {
+      child.classList.remove('they-live-hidden-ad');
+      delete child.dataset.theyLiveBlocked;
+    }
+  }
+  wrapper.remove();
+}
+
+function cleanupAllTheyLiveArtifacts() {
+  blockedAds.clear();
+
+  document.querySelectorAll('.they-live-wrapper').forEach(unwrapWrapper);
+
+  document.querySelectorAll('.they-live-replacement').forEach((overlay) => {
+    overlay.remove();
+  });
+
+  document.querySelectorAll('.they-live-hidden-ad, [data-they-live-blocked]').forEach((element) => {
+    element.classList.remove('they-live-hidden-ad');
+    delete element.dataset.theyLiveBlocked;
+  });
+
+  document.querySelectorAll('[data-they-live-position-patched]').forEach((element) => {
+    element.style.position = '';
+    delete element.dataset.theyLivePositionPatched;
+  });
 }
 
 function restoreAll() {
-  for (const element of [...blockedAds.keys()]) {
-    try {
-      restoreAd(element);
-    } catch {
-      blockedAds.delete(element);
-    }
-  }
+  cleanupAllTheyLiveArtifacts();
 }
 
 function blockInPlace(element, parent, overlay, width, height, message) {
@@ -267,9 +446,7 @@ function blockAd(element) {
     const parent = target.parentElement;
     if (!parent) return;
 
-    const rect = target.getBoundingClientRect();
-    const width = Math.round(rect.width);
-    const height = Math.round(rect.height);
+    const { width, height } = getElementSize(target);
     if (width < MIN_AD_WIDTH || height < MIN_AD_HEIGHT) return;
 
     const message = pickMessage(target);
@@ -340,34 +517,67 @@ function stopObserver() {
   clearTimeout(scanTimer);
 }
 
+function activateBlocking() {
+  stopObserver();
+  startObserver();
+  scanPage();
+  requestAnimationFrame(() => {
+    if (enabled) scanPage();
+  });
+  setTimeout(() => {
+    if (enabled) scanPage();
+  }, 150);
+}
+
 function setEnabled(value) {
   enabled = value !== false;
+  document.documentElement.dataset.theyLiveActive = enabled ? 'true' : 'false';
 
   if (enabled) {
-    scanPage();
-    startObserver();
+    activateBlocking();
   } else {
     stopObserver();
     restoreAll();
   }
 }
 
-chrome.storage.local.get(['enabled'], (result) => {
-  setEnabled(result.enabled !== false);
-});
+function syncFromStorage() {
+  chrome.storage.local.get(['enabled'], (result) => {
+    setEnabled(result.enabled !== false);
+  });
+}
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.enabled) {
-    setEnabled(changes.enabled.newValue !== false);
-  }
-});
+function registerListeners() {
+  if (globalThis.__theyLiveListeners) return;
+  globalThis.__theyLiveListeners = true;
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'TOGGLE') {
-    setEnabled(message.enabled !== false);
-  }
-});
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.enabled) {
+      setEnabled(changes.enabled.newValue !== false);
+    }
+  });
 
-window.addEventListener('resize', () => {
-  if (enabled) scheduleScan();
-});
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'TOGGLE') {
+      setEnabled(message.enabled !== false);
+      sendResponse({ ok: true });
+    }
+    return true;
+  });
+
+  window.addEventListener('resize', () => {
+    if (enabled) scheduleScan();
+  });
+}
+
+function boot() {
+  registerListeners();
+  syncFromStorage();
+}
+
+if (globalThis.__theyLiveBooted) {
+  syncFromStorage();
+} else {
+  globalThis.__theyLiveBooted = true;
+  boot();
+}

@@ -3,7 +3,8 @@
   "name": "They Live Ad Blocker",
   "version": "1.0.0",
   "description": "Reveal the truth behind webpage ads — They Live style.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "They Live — Toggle Sunglasses"
