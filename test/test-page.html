@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>They Live — Test Page</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    .setup { background: #111; color: #fff; padding: 16px; margin-bottom: 20px; border: 2px solid #fff; }
+    .setup h2 { margin: 0 0 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+    .setup p, .setup ol { margin: 0; font-size: 13px; line-height: 1.5; }
+    .setup ol { padding-left: 20px; margin-top: 8px; }
+    .setup code { background: #333; padding: 2px 6px; border-radius: 3px; }
+    .setup a { color: #fff; }
+    #status { margin-top: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; }
+    .layout { display: flex; gap: 20px; max-width: 1100px; margin: 0 auto; }
+    main { flex: 1; background: #fff; padding: 20px; }
+    .ad-banner { width: 728px; height: 90px; background: #e74c3c; color: white; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    p { line-height: 1.6; color: #333; }
+  </style>
+  <link rel="stylesheet" href="../src/replacer.css">
+</head>
+<body>
+  <div class="setup">
+    <h2>How to test</h2>
+    <ol>
+      <li>Load the extension in <code>chrome://extensions</code> (Developer mode → Load unpacked)</li>
+      <li>Run <code>python3 -m http.server 8765</code> from the project folder</li>
+      <li>Open <a href="http://localhost:8765/test/test-page.html">http://localhost:8765/test/test-page.html</a></li>
+    </ol>
+    <p id="status">Checking extension…</p>
+  </div>
+
+  <div class="ad-banner ad-container" id="top-ad-banner">728 x 90 Leaderboard Ad</div>
+
+  <div class="layout">
+    <main>
+      <h1>Sample Article</h1>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+      <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+      <div class="ad-slot" style="width:300px;height:250px;background:#f39c12;color:#fff;display:flex;align-items:center;justify-content:center;margin:20px 0;">
+        300 x 250 Medium Rectangle
+      </div>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+    </main>
+    <aside>
+      <div class="advertisement" style="width:300px;height:250px;background:#2ecc71;color:#fff;display:flex;align-items:center;justify-content:center;">
+        Sidebar Ad
+      </div>
+      <div class="ad-banner ad-skyscraper" style="width:160px;height:600px;background:#9b59b6;color:#fff;display:flex;align-items:center;justify-content:center;margin-top:20px;">
+        160 x 600 Skyscraper
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // Fallback demo if extension isn't active (e.g. file:// or extension not loaded)
+    const MESSAGES = ['OBEY', 'CONSUME', 'STAY ASLEEP', 'SUBMIT', 'BUY', 'CONFORM'];
+
+    function demoReplace(el, index) {
+      if (el.closest('.they-live-wrapper')) return;
+      const rect = el.getBoundingClientRect();
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      if (w < 88 || h < 31) return;
+
+      const msg = MESSAGES[index % MESSAGES.length];
+      const wrapper = document.createElement('div');
+      wrapper.className = 'they-live-wrapper';
+      wrapper.style.cssText = `position:relative;width:${w}px;height:${h}px;display:block;`;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'they-live-replacement';
+      overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+
+      const text = document.createElement('span');
+      text.className = 'they-live-replacement__text';
+      text.textContent = msg;
+      text.style.fontSize = Math.max(10, Math.min(w / (msg.length * 0.6), h * 0.35, 48)) + 'px';
+      overlay.appendChild(text);
+
+      el.parentElement.insertBefore(wrapper, el);
+      wrapper.appendChild(el);
+      wrapper.appendChild(overlay);
+      el.classList.add('they-live-hidden-ad');
+    }
+
+    setTimeout(() => {
+      const status = document.getElementById('status');
+      const extensionActive = document.querySelector('.they-live-wrapper');
+
+      if (extensionActive) {
+        status.textContent = 'Extension active — ads revealed';
+        status.style.color = '#2ecc71';
+        return;
+      }
+
+      document.querySelectorAll('.ad-container, .ad-slot, .advertisement, .ad-banner.ad-skyscraper')
+        .forEach(demoReplace);
+
+      status.textContent = 'Extension not detected — showing built-in demo instead';
+      status.style.color = '#f39c12';
+    }, 800);
+  </script>
+</body>
+</html>

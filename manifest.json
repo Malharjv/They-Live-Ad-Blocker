@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "They Live Ad Blocker",
+  "version": "1.0.0",
+  "description": "Reveal the truth behind webpage ads — They Live style.",
+  "permissions": ["storage", "activeTab"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "They Live — Toggle Sunglasses"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content.js"],
+      "css": ["src/replacer.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
