@@ -11,19 +11,11 @@ const MESSAGES = [
   'CONFORM',
 ];
 
-const AD_SELECTORS = [
+const STRONG_AD_SELECTORS = [
   'ins.adsbygoogle',
   '[id*="google_ads"]',
   '[id*="GoogleAd"]',
   '[id^="div-gpt-ad"]',
-  '[class*="ad-container"]',
-  '[class*="ad_container"]',
-  '[class*="advertisement"]',
-  '[class*="ad-banner"]',
-  '[class*="ad_banner"]',
-  '[class*="ad-slot"]',
-  '[class*="ad_slot"]',
-  '[class*="sponsored-content"]',
   '[data-ad-slot]',
   '[data-ad]',
   '[data-advertisement]',
@@ -42,11 +34,21 @@ const AD_SELECTORS = [
   '[aria-label*="sponsored" i]',
 ];
 
+const AD_IFRAME_PATTERN =
+  /doubleclick|googlesyndication|googleadservices|adnxs|taboola|outbrain|adservice|amazon-adsystem|criteo|pubmatic|openx/i;
+
 const AD_CLASS_PATTERNS = [
-  /\bad[-_]?(banner|slot|unit|container|wrapper|box|block|frame|content|placement|holder)\b/i,
-  /\b(advert|advertisement|sponsored|promo[-_]?ad)\b/i,
-  /\bgoogle[-_]?ad/i,
   /\badsbygoogle\b/i,
+  /\bgoogle[-_]?ad/i,
+  /\bad[-_]?(banner|slot|unit|container|wrapper|box|block|frame|placement|holder)\b/i,
+  /\badvert[-_]?(slot|banner|container|wrapper|isement)\b/i,
+  /\bsponsored[-_]?(content|ad|listing|post)\b/i,
+  /\bpub[-_]?ad\b/i,
+  /\bdfp[-_]?(ad|slot)\b/i,
+];
+
+const EXCLUDE_PATTERNS = [
+  /\b(article|content-body|main-content|post-content|entry-content|comment|comments|navigation|navbar|footer|header|sidebar-widget|related-articles|newsletter|social-share)\b/i,
 ];
 
 const STANDARD_AD_SIZES = [
@@ -90,12 +92,50 @@ function isStandardAdSize(width, height) {
   );
 }
 
+function matchesStrongSelector(element) {
+  return STRONG_AD_SELECTORS.some((selector) => {
+    try {
+      return element.matches(selector);
+    } catch {
+      return false;
+    }
+  });
+}
+
 function hasAdPattern(element) {
   const id = element.id || '';
   const className = typeof element.className === 'string' ? element.className : '';
   const combined = `${id} ${className}`;
 
   return AD_CLASS_PATTERNS.some((pattern) => pattern.test(combined));
+}
+
+function isExcludedElement(element) {
+  const id = element.id || '';
+  const className = typeof element.className === 'string' ? element.className : '';
+  const combined = `${id} ${className} ${element.getAttribute('role') || ''}`;
+
+  if (EXCLUDE_PATTERNS.some((pattern) => pattern.test(combined))) return true;
+  if (element.closest('article, [role="article"], main p, .comment, .comments, nav, footer, header')) {
+    return !matchesStrongSelector(element);
+  }
+
+  return false;
+}
+
+function hasSubstantiveContent(element) {
+  if (element.querySelector('article, p, h1, h2, h3, h4, nav, form, table, ul, ol')) return true;
+
+  const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+  if (text.length > 100) return true;
+  if (text.split(' ').length > 18) return true;
+
+  return false;
+}
+
+function isAdIframe(element) {
+  const src = element.getAttribute('src') || '';
+  return AD_IFRAME_PATTERN.test(src);
 }
 
 function isLikelyAd(element) {
@@ -113,26 +153,26 @@ function isLikelyAd(element) {
 
   const tag = element.tagName;
   if (tag === 'BODY' || tag === 'HTML' || tag === 'MAIN' || tag === 'ARTICLE') return false;
+  if (isExcludedElement(element)) return false;
 
   const { width, height } = getElementSize(element);
 
   if (width < MIN_AD_WIDTH || height < MIN_AD_HEIGHT) return false;
-  if (width > window.innerWidth * 0.95 && height > window.innerHeight * 0.8) return false;
+  if (width > window.innerWidth * 0.9 && height > window.innerHeight * 0.75) return false;
 
-  if (AD_SELECTORS.some((selector) => element.matches(selector))) return true;
-  if (hasAdPattern(element)) return true;
+  if (matchesStrongSelector(element)) return true;
 
   if (tag === 'IFRAME') {
-    const src = element.getAttribute('src') || '';
-    if (/ad|doubleclick|syndication|sponsor|promo|taboola|outbrain/i.test(src)) return true;
-    if (isStandardAdSize(width, height) && !src.includes(window.location.hostname)) return true;
+    return isAdIframe(element);
   }
 
-  if (isStandardAdSize(width, height) && hasAdPattern(element.parentElement || element)) {
-    return true;
-  }
+  if (tag === 'INS' && element.classList.contains('adsbygoogle')) return true;
 
-  return isStandardAdSize(width, height) && hasAdPattern(element);
+  if (!isStandardAdSize(width, height)) return false;
+  if (!hasAdPattern(element)) return false;
+  if (hasSubstantiveContent(element)) return false;
+
+  return true;
 }
 
 function computeFontSize(width, height, message) {
@@ -160,20 +200,31 @@ function buildOverlay(width, height, message) {
   return overlay;
 }
 
+function isRiskySandboxIframe(element) {
+  if (element.tagName !== 'IFRAME') return false;
+  const sandbox = element.getAttribute('sandbox') || '';
+  return sandbox.includes('allow-scripts') && sandbox.includes('allow-same-origin');
+}
+
+function containsRiskySandboxIframe(element) {
+  if (isRiskySandboxIframe(element)) return true;
+  return [...element.querySelectorAll('iframe')].some(isRiskySandboxIframe);
+}
+
+function shouldUseInPlaceBlock(element) {
+  return element.tagName === 'IFRAME' || containsRiskySandboxIframe(element);
+}
+
 function getBlockTarget(element) {
   if (element.tagName !== 'IFRAME') return element;
+  if (isRiskySandboxIframe(element)) return element;
 
   let parent = element.parentElement;
-  for (let i = 0; i < 3 && parent; i++) {
+  for (let i = 0; i < 2 && parent; i++) {
     if (parent.closest('.they-live-wrapper')) break;
     if (blockedAds.has(parent)) return parent;
     if (parent.querySelector('[data-they-live-blocked]')) return element;
-    if (hasAdPattern(parent)) return parent;
-    try {
-      if (AD_SELECTORS.some((selector) => parent.matches(selector))) return parent;
-    } catch {
-      // ignore invalid selector match on parent
-    }
+    if (matchesStrongSelector(parent) || hasAdPattern(parent)) return parent;
     parent = parent.parentElement;
   }
 
@@ -293,7 +344,7 @@ function blockAd(element) {
     const message = pickMessage();
     const overlay = buildOverlay(width, height, message);
 
-    if (target.tagName === 'IFRAME') {
+    if (shouldUseInPlaceBlock(target)) {
       blockInPlace(target, parent, overlay, width, height, message);
     } else {
       blockWithWrapper(target, parent, overlay, width, height, message);
@@ -303,50 +354,73 @@ function blockAd(element) {
   }
 }
 
-function collectCandidates(root) {
-  const found = new Set();
-
-  for (const selector of AD_SELECTORS) {
+function forEachSelectorMatch(root, fn) {
+  for (const selector of STRONG_AD_SELECTORS) {
     try {
-      root.querySelectorAll(selector).forEach((el) => found.add(el));
+      root.querySelectorAll(selector).forEach(fn);
     } catch {
       // invalid selector on some pages
     }
   }
-
-  const elements = root.querySelectorAll('iframe, ins, div, aside, section, span');
-  elements.forEach((el) => {
-    if (isLikelyAd(el)) found.add(el);
-  });
-
-  return [...found];
 }
 
-function scanPage() {
+function tryBlockElement(element) {
+  if (isLikelyAd(element)) blockAd(element);
+}
+
+function scanSelectors(root = document) {
+  if (!enabled) return;
+  forEachSelectorMatch(root, tryBlockElement);
+}
+
+function scanHeuristic(root = document) {
+  if (!enabled) return;
+  root.querySelectorAll('iframe, ins').forEach(tryBlockElement);
+}
+
+function scanAddedRoot(root) {
+  if (!enabled || !(root instanceof HTMLElement)) return;
+  tryBlockElement(root);
+  forEachSelectorMatch(root, tryBlockElement);
+  root.querySelectorAll('iframe, ins').forEach(tryBlockElement);
+}
+
+function scanPage(full = false) {
+  if (!enabled) return;
+  scanSelectors();
+  if (full) scanHeuristic();
+}
+
+function scheduleScan(full = false) {
+  clearTimeout(scanTimer);
+  scanTimer = setTimeout(() => scanPage(full), SCAN_DEBOUNCE_MS);
+}
+
+function handleMutations(mutations) {
   if (!enabled) return;
 
-  const candidates = collectCandidates(document);
-  for (const element of candidates) {
-    if (isLikelyAd(element)) {
-      blockAd(element);
+  let scheduleQuick = false;
+
+  for (const mutation of mutations) {
+    if (mutation.type !== 'childList') continue;
+    for (const node of mutation.addedNodes) {
+      if (node instanceof HTMLElement) {
+        scanAddedRoot(node);
+        scheduleQuick = true;
+      }
     }
   }
-}
 
-function scheduleScan() {
-  clearTimeout(scanTimer);
-  scanTimer = setTimeout(scanPage, SCAN_DEBOUNCE_MS);
+  if (scheduleQuick) scheduleScan(false);
 }
 
 function startObserver() {
   if (observer) return;
 
-  observer = new MutationObserver(scheduleScan);
+  observer = new MutationObserver(handleMutations);
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
-    attributes: true,
-    attributeFilter: ['class', 'id', 'src', 'style'],
   });
 }
 
@@ -362,13 +436,10 @@ function activateBlocking() {
   messageCounter = 0;
   stopObserver();
   startObserver();
-  scanPage();
+  scanPage(true);
   requestAnimationFrame(() => {
-    if (enabled) scanPage();
+    if (enabled) scanPage(false);
   });
-  setTimeout(() => {
-    if (enabled) scanPage();
-  }, 150);
 }
 
 function setEnabled(value) {
@@ -408,7 +479,7 @@ function registerListeners() {
   });
 
   window.addEventListener('resize', () => {
-    if (enabled) scheduleScan();
+    if (enabled) scheduleScan(false);
   });
 }
 
