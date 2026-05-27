@@ -67,10 +67,12 @@ let enabled = true;
 const blockedAds = new Map();
 let observer = null;
 let scanTimer = null;
+let messageCounter = 0;
 
-function pickMessage(element) {
-  const seed = element.tagName.length + element.className.length + element.id.length;
-  return MESSAGES[seed % MESSAGES.length];
+function pickMessage() {
+  const message = MESSAGES[messageCounter % MESSAGES.length];
+  messageCounter += 1;
+  return message;
 }
 
 function getElementSize(element) {
@@ -288,7 +290,7 @@ function blockAd(element) {
     const { width, height } = getElementSize(target);
     if (width < MIN_AD_WIDTH || height < MIN_AD_HEIGHT) return;
 
-    const message = pickMessage(target);
+    const message = pickMessage();
     const overlay = buildOverlay(width, height, message);
 
     if (target.tagName === 'IFRAME') {
@@ -357,6 +359,7 @@ function stopObserver() {
 }
 
 function activateBlocking() {
+  messageCounter = 0;
   stopObserver();
   startObserver();
   scanPage();
