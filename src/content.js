@@ -133,6 +133,58 @@ function hasSubstantiveContent(element) {
   return false;
 }
 
+const YOUTUBE_FEED_SELECTORS = [
+  'ytd-ad-slot-renderer',
+  'ytd-in-feed-ad-layout-renderer',
+  'ytd-display-ad-renderer',
+  'ytd-promoted-sparkles-web-renderer',
+  'ytd-promoted-video-renderer',
+  'ytd-compact-promoted-video-renderer',
+];
+
+const YOUTUBE_PLAYER_SELECTORS =
+  '#movie_player, .html5-video-player, .ytp-ad-module, .ytp-ad-player-overlay, #player-ads, .video-ads, .ytp-ad-overlay-slot';
+
+function isYouTubePage() {
+  return /(^|\.)youtube\.com$/i.test(window.location.hostname);
+}
+
+function isInsideYouTubePlayer(element) {
+  return !!element.closest(YOUTUBE_PLAYER_SELECTORS);
+}
+
+function isYouTubeSponsoredFeedItem(element) {
+  if (!isYouTubePage() || isInsideYouTubePlayer(element)) return false;
+  if (element.tagName.toLowerCase() !== 'ytd-rich-item-renderer') return false;
+
+  if (element.querySelector('#ad-badge, [overlay-style="SPONSORED"], ytd-badge-supported-renderer[is-ad]')) {
+    return true;
+  }
+
+  const metaItems = element.querySelectorAll(
+    '#metadata-line span, .inline-metadata-item, ytd-badge-supported-renderer, yt-formatted-string'
+  );
+  for (const item of metaItems) {
+    if (/^Sponsored$/i.test(item.textContent.trim())) return true;
+  }
+
+  return /\bSponsored\b/i.test(element.querySelector('#metadata-line, ytd-video-meta-block')?.textContent || '');
+}
+
+function getYouTubeBlockTarget(element) {
+  if (!isYouTubePage() || isInsideYouTubePlayer(element)) return null;
+
+  for (const selector of YOUTUBE_FEED_SELECTORS) {
+    const match = element.closest(selector);
+    if (match) return match;
+  }
+
+  const richItem = element.closest('ytd-rich-item-renderer');
+  if (richItem && isYouTubeSponsoredFeedItem(richItem)) return richItem;
+
+  return null;
+}
+
 function isAdIframe(element) {
   const src = element.getAttribute('src') || '';
   return AD_IFRAME_PATTERN.test(src);
@@ -153,6 +205,9 @@ function isLikelyAd(element) {
 
   const tag = element.tagName;
   if (tag === 'BODY' || tag === 'HTML' || tag === 'MAIN' || tag === 'ARTICLE') return false;
+
+  if (getYouTubeBlockTarget(element)) return true;
+
   if (isExcludedElement(element)) return false;
 
   const { width, height } = getElementSize(element);
@@ -216,6 +271,9 @@ function shouldUseInPlaceBlock(element) {
 }
 
 function getBlockTarget(element) {
+  const youtubeTarget = getYouTubeBlockTarget(element);
+  if (youtubeTarget) return youtubeTarget;
+
   if (element.tagName !== 'IFRAME') return element;
   if (isRiskySandboxIframe(element)) return element;
 
@@ -378,16 +436,38 @@ function scanHeuristic(root = document) {
   root.querySelectorAll('iframe, ins').forEach(tryBlockElement);
 }
 
+function scanYouTubeFeed(root = document) {
+  if (!enabled || !isYouTubePage()) return;
+
+  for (const selector of YOUTUBE_FEED_SELECTORS) {
+    try {
+      root.querySelectorAll(selector).forEach(tryBlockElement);
+    } catch {
+      // ignore invalid selector
+    }
+  }
+
+  if (root instanceof HTMLElement && root.matches('ytd-rich-item-renderer')) {
+    if (isYouTubeSponsoredFeedItem(root)) tryBlockElement(root);
+  }
+
+  root.querySelectorAll('ytd-rich-item-renderer').forEach((item) => {
+    if (isYouTubeSponsoredFeedItem(item)) tryBlockElement(item);
+  });
+}
+
 function scanAddedRoot(root) {
   if (!enabled || !(root instanceof HTMLElement)) return;
   tryBlockElement(root);
   forEachSelectorMatch(root, tryBlockElement);
   root.querySelectorAll('iframe, ins').forEach(tryBlockElement);
+  scanYouTubeFeed(root);
 }
 
 function scanPage(full = false) {
   if (!enabled) return;
   scanSelectors();
+  scanYouTubeFeed();
   if (full) scanHeuristic();
 }
 
