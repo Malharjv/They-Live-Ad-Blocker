@@ -16,7 +16,9 @@ body {
 }
 
 .popup__header {
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   margin-bottom: 20px;
   border-bottom: 2px solid #ffffff;
   padding-bottom: 12px;
@@ -26,16 +28,16 @@ body {
   font-size: 18px;
   letter-spacing: 3px;
   font-weight: 900;
+  text-align: center;
 }
 
-.popup__subtitle {
-  font-size: 10px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-top: 4px;
-  opacity: 0.7;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
+.popup__sunglasses {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.popup__sunglasses--off {
+  filter: grayscale(1) opacity(0.35);
 }
 
 .popup__toggle-row {
@@ -43,12 +45,6 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
-}
-
-.popup__label {
-  font-size: 13px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
 }
 
 .toggle {

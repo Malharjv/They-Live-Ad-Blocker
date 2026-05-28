@@ -1,8 +1,12 @@
 const toggle = document.getElementById('toggle');
 const status = document.getElementById('status');
+const sunglasses = document.getElementById('sunglasses');
 
 function updateUI(enabled) {
   toggle.checked = enabled;
+  sunglasses.textContent = '🕶️';
+  sunglasses.classList.toggle('popup__sunglasses--off', !enabled);
+  sunglasses.setAttribute('aria-label', enabled ? 'Sunglasses on' : 'Sunglasses off');
   status.textContent = enabled ? 'Revealing ads' : 'Inactive';
   status.classList.toggle('popup__status--off', !enabled);
 }
